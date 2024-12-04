@@ -8,7 +8,7 @@ class Backtester:
         self.data = data.copy()
         self.trades = None
         
-    def calculate_metrics(self, trades_df):
+    def calculate_metrics(self, trades_df):    #avi does not 
         """Calculate metrics for a given set of trades"""
         if len(trades_df) == 0:
             return {
