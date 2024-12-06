@@ -8,18 +8,23 @@ from matplotlib.gridspec import GridSpec
 from mplfinance.original_flavor import candlestick_ohlc
 
 class Backtester:
-    def __init__(self, data: pd.DataFrame, initial_capital=10000, trade_size=None, strategy=None, **params):
+    def __init__(self, symbol, start_date, end_date, interval, data: pd.DataFrame, initial_capital=10000, trade_size=None, strategy=None, **params):
         self.data = data.copy()
         self.trades = None
         self.initial_capital = initial_capital
         self.current_capital = initial_capital
         self.trade_size = trade_size or initial_capital
         self.params = params
+        self.symbol = symbol
+        self.start_date = start_date 
+        self.end_date = end_date 
+        self.interval = interval
         self.peaks = params.get("peaks", [])
         self.troughs = params.get("troughs", [])
         self.uptrends = params.get("uptrends", [])
         self.downtrends = params.get("downtrends", [])
         self.tradesInfo = []
+        self.strategy_name = "trend_strategy"
         
     def backtest(self) -> Dict[str, Any]:
         """Run backtest on the trend strategy"""
@@ -80,6 +85,7 @@ class Backtester:
         """
         # Use the provided strategy if given, otherwise default to the trend strategy
         if strategy:
+            self.strategy_name = strategy.__name__
             signals = strategy(self.data)
             if not isinstance(signals, pd.DataFrame):
                 raise ValueError("The strategy function must return a DataFrame with a 'Position' column.")
@@ -250,6 +256,19 @@ class Backtester:
         data = pd.DataFrame(self.tradesInfo)
         return data
 
+    def calculate_buy_and_hold(self) -> Dict[str, Dict[str, Any]]:
+        """Calculate buy and hold strategy results for comparison."""
+        
+        # Get first and last prices
+        start_price = self.data['Close'].iloc[0]
+        end_price = self.data['Close'].iloc[-1]
+        
+        # Calculate absolute and percentage profit/loss
+        total_profit = (end_price - start_price)
+        profit_percentage = (total_profit / start_price) * 100
+        profit_money = (total_profit / start_price) * self.initial_capital
+        return {"total_profit": profit_money, "profit_percentage": profit_percentage }
+
 
     def calculate_metrics(self, trades_df):    #avi does not 
         """Calculate metrics for a given set of trades"""
@@ -258,14 +277,15 @@ class Backtester:
                 "Start Date":"",
                 "End Date": "",
                 "Candle Time": "",
+                "Profits": 0,
+                "Losses": 0,
                 "Net Profit": 0,
-                "Gross Profit": 0,
-                "Gross Loss": 0,
-                "Max Loss": 0,
                 "% Profit": 0,
+                "Winning Trades": 0,
+                "Max Loss": 0,
                 "Number of Trades": 0,
-                "Number of Profit Trades": 0,
-                "Number of Loss Trades": 0,
+                "Number of Winning Trades": 0,
+                "Number of Losing Trades": 0,
                 "Number of Even Trades": 0,
                 "Number of Trends": 0,
                 "Number of Trends Intra Day": 0,
@@ -284,23 +304,17 @@ class Backtester:
         avg_win = profit_trades['profit_money'].mean() if len(profit_trades) > 0 else 0
         avg_loss = loss_trades['profit_money'].mean() if len(loss_trades) > 0 else 0
         
-        # Calculate trends using the copied DataFrame
-        #trades['Trend'] = trades['Position'].diff().ne(0).cumsum()
-        #trades.loc[:, 'Date'] = trades.index.date  # Using .loc to avoid the warning
-        #intraday_trends = trades.groupby('Date')['Trend'].nunique().sum()
         
         return {
-            "Start Date": trades.iloc[0]['open_date'].strftime('%Y-%m-%d %H:%M:%S'),
-            "End Date": trades.iloc[-1]['close_date'].strftime('%Y-%m-%d %H:%M:%S'),
-            "Interval": '1d',
+            "Profits": round(profit_trades['profit_money'].sum() if len(profit_trades) > 0 else 0, 2),
+            "Losses": round(loss_trades['profit_money'].sum() if len(loss_trades) > 0 else 0, 2),
             "Net Profit": round(trades['profit_money'].sum(), 2),
-            "Gross Profit": round(profit_trades['profit_money'].sum() if len(profit_trades) > 0 else 0, 2),
-            "Gross Loss": round(loss_trades['profit_money'].sum() if len(loss_trades) > 0 else 0, 2),
+            "% Profit": round(trades['profit_percent'].sum(),2),
+            "Winning Trades": (len(profit_trades) / len(trades))*100,
             "Max Loss": round(trades['profit_money'].min() if len(trades) > 0 else 0, 2),
-            "% Profit": trades['profit_percent'].sum(),
             "Number of Trades": len(trades),
-            "Number of Profit Trades": len(profit_trades),
-            "Number of Loss Trades": len(loss_trades),
+            "Number of Winning Trades": len(profit_trades),
+            "Number of Losing Trades": len(loss_trades),
             "Number of Even Trades": len(even_trades),
             "Number of Trends": len(self.uptrends) + len(self.downtrends),
             "Number of Trends Intra Day": 0,
@@ -314,19 +328,19 @@ class Backtester:
         """Print results in a three-column format with negative numbers in red and brackets,
         adding $ for monetary values and % for percentages"""
         metrics_order = [
-            "Start Date", "End Date", "Interval",
-            "Net Profit", "Gross Profit", "Gross Loss", "Max Loss", "% Profit",
-            "Number of Trades", "Number of Profit Trades", "Number of Loss Trades",
+            "Profits", "Losses",
+            "Net Profit", "% Profit", "Winning Trades", "Max Loss", 
+            "Number of Trades", "Number of Winning Trades", "Number of Losing Trades",
             "Number of Even Trades", "Number of Trends", "Number of Trends Intra Day",
             "Avg Trade", "Avg Winning Trade", "Avg Losing Trade", "Ratio Avg Win/Avg Loss"
         ]
         
         # Define which metrics should have which symbols
         monetary_metrics = {
-            "Net Profit", "Gross Profit", "Gross Loss", "Max Loss",
+            "Net Profit", "Profits", "Losses", "Max Loss",
             "Avg Trade", "Avg Winning Trade", "Avg Losing Trade"
         }
-        percentage_metrics = {"% Profit", "Ratio Avg Win/Avg Loss"}
+        percentage_metrics = {"% Profit", "Ratio Avg Win/Avg Loss", "Winning Trades"}
         
         # ANSI escape codes for colors
         RED = '\033[91m'
@@ -351,9 +365,22 @@ class Backtester:
                 padding = width - len(num_str)
                 return " " * max(0, padding) + num_str
             return f"{str(value):>{width}}"
+
+        buy_and_hold_result = self.calculate_buy_and_hold()
         
         print("\nBACKTEST RESULTS")
         print("=" * 120)
+
+        print(f"Symbol:                  {self.symbol}\t\t\tBuy & Hold Net Profit:   $ {round(buy_and_hold_result['total_profit'],2)}")
+        print(f"Start Date:              {self.start_date}\t\tBuy & Hold Profit:     {round(buy_and_hold_result['profit_percentage'],2)}%")
+        print(f"End Date:                {self.end_date}")
+        print("-" * 120)
+        print(f"Interval:                {self.interval}\t\t\tStrategy Profit:      $ {round(self.current_capital-self.initial_capital,2)}")
+        print(f"Start Date Capital:      {self.initial_capital}\t\t\tStrategy Yield:       {round((self.current_capital-self.initial_capital)/self.initial_capital*100,2)} %")
+        print(f"End Date Capital:        {self.current_capital}")
+        print(f"Strategy Name:           {self.strategy_name}")
+        print("=" * 120)
+
         
         # Print header
         print(f"{'Metric':<25} {'Total':>25} {'Long':>25} {'Short':>25}")
@@ -372,7 +399,7 @@ class Backtester:
             
             print(f"{metric:<25}{total_str}{long_str}{short_str}")
             
-    def visualize_data(self):
+    def visualize_data(self, hideTrends=None, ):
         """Create a visualization of the stock price with candlesticks, trends, and trades."""
         # Create figure with secondary y-axis for volume
         fig = plt.figure(figsize=(15, 10))
