@@ -380,7 +380,7 @@ class Backtester:
         print("-" * 120)
         print(f"Interval:                {self.interval}\t\t\tStrategy Profit:      $ {round(self.current_capital-self.initial_capital,2)}")
         print(f"Start Date Capital:      {self.initial_capital}\t\t\tStrategy Yield:       {round((self.current_capital-self.initial_capital)/self.initial_capital*100,2)} %")
-        print(f"End Date Capital:        {self.current_capital}")
+        print(f"End Date Capital:        {round(self.current_capital,2)}")
         print(f"Strategy Name:           {self.strategy_name}")
         print("=" * 120)
 
