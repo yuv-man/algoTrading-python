@@ -103,8 +103,39 @@ class Backtester:
         
         # Use the default trend strategy if no custom strategy is provided
         return self.trend_strategy()
+    
+    def _record_trade(self, position, exit_idx, exit_price, trade_type):
+        """
+        Records a completed trade into self.tradesInfo.
+    
+        Args:
+            position (dict): Information about the opened position (entry price, index, date).
+            exit_idx (int): The index of the exit point.
+            exit_price (float): The exit price.
+            trade_type (str): Type of the trade ('long' or 'short').
+        """
+        profit = ((exit_price - position['entry_price']) / position['entry_price'])
+        if trade_type == 'short':
+            profit *= -1
+        profit_in_money = profit * self.trade_size
+        self.current_capital += profit_in_money
+    
+        trade = {
+            'type': trade_type,
+            'entry_price': position['entry_price'],
+            'exit_price': exit_price,
+            'entry_idx': position['entry_idx'],
+            'exit_idx': exit_idx,
+            'profit_percent': profit * 100,
+            'profit_money': profit_in_money,
+            'open_date': position['date'],
+            'close_date': self.data.iloc[exit_idx].name,
+        }
+        self.tradesInfo.append(trade)
         
-
+    def _enter_position(self, entry_price, idx):
+        return {'entry_price': entry_price, 'entry_idx': idx, 'date': self.data.iloc[idx].name}
+        
     def trend_strategy(self) -> pd.DataFrame:
         """
         The default trend-following trading strategy with dynamic stop-loss management.
@@ -146,21 +177,7 @@ class Backtester:
                     current_stop_loss = None
                     self.data.loc[current_idx, 'Position'] = 0
                     exit_price = self.data['Close'].iloc[i]
-                    profit = (exit_price - position['entry_price']) / position['entry_price']
-                    profit_in_money = profit * self.trade_size
-                    self.current_capital += profit_in_money
-                    trade = {
-                        'type': 'long',
-                        'entry_price': position['entry_price'],
-                        'exit_price': exit_price,
-                        'entry_idx': position['entry_idx'],
-                        'exit_idx': i,
-                        'profit_percent': profit * 100,
-                        'profit_money': profit_in_money,
-                        'open_date': position['date'],
-                        'close_date': self.data.iloc[i].name
-                    }
-                    self.tradesInfo.append(trade)
+                    self._record_trade(position, i, exit_price, 'long')
                     continue
     
                 elif position_type == 'short' and current_price > current_stop_loss:
@@ -171,21 +188,7 @@ class Backtester:
                     current_stop_loss = None
                     self.data.loc[current_idx, 'Position'] = 0
                     exit_price = self.data['Close'].iloc[i]
-                    profit = (exit_price - position['entry_price']) / position['entry_price'] * -1
-                    profit_in_money = profit * self.trade_size
-                    self.current_capital += profit_in_money
-                    trade = {
-                        'type': 'short',
-                        'entry_price': position['entry_price'],
-                        'exit_price': exit_price,
-                        'entry_idx': position['entry_idx'],
-                        'exit_idx': i,
-                        'profit_percent': profit * 100,
-                        'profit_money': profit_in_money,
-                        'open_date': position['date'],
-                        'close_date': self.data.iloc[i].name
-                    }
-                    self.tradesInfo.append(trade)
+                    self._record_trade(position, i, exit_price, 'short')
                     continue
     
             # Check for new uptrend
@@ -204,7 +207,7 @@ class Backtester:
                         in_position = True
                         position_type = 'long'
                         entry_price = self.data['Close'].iloc[i]
-                        position = {'entry_price': entry_price, 'entry_idx': i, 'date': self.data.iloc[i].name}
+                        position = self._enter_position(entry_price, i)
     
             # Check for new downtrend
             for start, end in self.downtrends:
@@ -222,8 +225,8 @@ class Backtester:
                         in_position = True
                         position_type = 'short'
                         entry_price = self.data['Close'].iloc[i]
-                        position = {'entry_price': entry_price, 'entry_idx': i, 'date': self.data.iloc[i].name}
-    
+                        position = self._enter_position(entry_price, i)    
+                        
             # Update stop-loss for existing positions
             if in_position:
                 if position_type == 'long':
@@ -310,7 +313,7 @@ class Backtester:
             "Losses": round(loss_trades['profit_money'].sum() if len(loss_trades) > 0 else 0, 2),
             "Net Profit": round(trades['profit_money'].sum(), 2),
             "% Profit": round(trades['profit_percent'].sum(),2),
-            "Winning Trades": (len(profit_trades) / len(trades))*100,
+            "Winning Trades": round(len(profit_trades) / len(trades)*100,2),
             "Max Loss": round(trades['profit_money'].min() if len(trades) > 0 else 0, 2),
             "Number of Trades": len(trades),
             "Number of Winning Trades": len(profit_trades),
