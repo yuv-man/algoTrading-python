@@ -119,11 +119,12 @@ class StockTrendAnalyzer:
     def find_peaks_and_troughs(self):
         """
         Identifies peaks and troughs based on candlestick patterns and price movement.
-        Enforces strict alternation between peaks and troughs, and proper inside bar handling.
+        Strictly enforces alternation - must have trough between peaks and peak between troughs.
         """
         self.peaks = []
         self.troughs = []
-        last_point_type = None  # Tracks if last point was 'peak', 'trough', or None
+        need_peak = False   # if True, we can only record a peak next
+        need_trough = False # if True, we can only record a trough next
    
         # Handle first candle
         first_idx = self.data.index[0]
@@ -147,7 +148,7 @@ class StockTrendAnalyzer:
             # Check for inside bar - mark and continue
             if current['High'] <= previous['High'] and current['Low'] >= previous['Low']:
                 self.data.loc[current_idx, 'ReversalType'] = 'insidebar'
-                continue  # Skip further processing for inside bars
+                continue
    
             # Check for outside bar
             is_outside_bar = current['High'] > previous['High'] and current['Low'] < previous['Low']
@@ -163,36 +164,69 @@ class StockTrendAnalyzer:
                 # Skip if previous bar was an inside bar
                 if self.data.loc[previous_idx, 'ReversalType'] == 'insidebar':
                     continue
-   
-                # Peak Detection
-                if (self.data.loc[previous_idx, 'CandleMove'] == 'down' or
-                    self.data.loc[previous_idx, 'ReversalType'] in ['Doji', 'InverterHammer', 'RedKR']):
-                   
-                    # Only record peak if last point was trough or none
-                    if last_point_type in [None, 'trough']:
-                        self.peaks.append(i-2)  # Previous of previous bar is peak
-                        last_point_type = 'peak'
-   
-                # Additional peak condition for outside bar
-                if is_outside_bar and current['Open'] > current['Close']:
-                    if last_point_type in [None, 'trough']:
-                        self.peaks.append(i)  # Current bar is peak
-                        last_point_type = 'peak'
-   
-                # Trough Detection
-                if (self.data.loc[previous_idx, 'CandleMove'] == 'up' or
-                    self.data.loc[previous_idx, 'ReversalType'] in ['Doji', 'Hammer', 'GreenKR']):
-                   
-                    # Only record trough if last point was peak or none
-                    if last_point_type in [None, 'peak']:
-                        self.troughs.append(i-2)  # Previous of previous bar is trough
-                        last_point_type = 'trough'
-   
-                # Additional trough condition for outside bar
-                if is_outside_bar and current['Open'] < current['Close']:
-                    if last_point_type in [None, 'peak']:
-                        self.troughs.append(i)  # Current bar is trough
-                        last_point_type = 'trough'
+
+                # Check standard pattern conditions
+                peak_condition = (self.data.loc[previous_idx, 'CandleMove'] == 'down' or
+                                self.data.loc[previous_idx, 'ReversalType'] in ['Doji', 'InverterHammer', 'RedKR'])
+                
+                trough_condition = (self.data.loc[previous_idx, 'CandleMove'] == 'up' or
+                                  self.data.loc[previous_idx, 'ReversalType'] in ['Doji', 'Hammer', 'GreenKR'])
+
+                # Check outside bar conditions
+                peak_outside_condition = is_outside_bar and current['Open'] > current['Close']
+                trough_outside_condition = is_outside_bar and current['Open'] < current['Close']
+
+                # Handle peaks
+                if (peak_condition or peak_outside_condition):
+                    if len(self.peaks) == 0 or need_peak:  # Can only add peak if we need one
+                        if peak_condition:
+                            index_to_add = i-2
+                        else:  # peak_outside_condition
+                            index_to_add = i
+                            
+                        if not trough_condition and not trough_outside_condition:  # Ensure not also a trough
+                            # Check for higher bars between last trough and this peak
+                            if self.troughs:
+                                last_trough_idx = self.troughs[-1]
+                                # Find the highest bar between last trough and current peak
+                                highest_high = float('-inf')
+                                highest_idx = index_to_add
+                                for idx in range(last_trough_idx, index_to_add + 1):
+                                    current_high = self.data.loc[self.data.index[idx], 'High']
+                                    if current_high > highest_high:
+                                        highest_high = current_high
+                                        highest_idx = idx
+                                index_to_add = highest_idx
+
+                            self.peaks.append(index_to_add)
+                            need_peak = False
+                            need_trough = True
+
+                # Handle troughs
+                if (trough_condition or trough_outside_condition):
+                    if len(self.troughs) == 0 or need_trough:  # Can only add trough if we need one
+                        if trough_condition:
+                            index_to_add = i-2
+                        else:  # trough_outside_condition
+                            index_to_add = i
+                            
+                        if not peak_condition and not peak_outside_condition:  # Ensure not also a peak
+                            # Check for lower bars between last peak and this trough
+                            if self.peaks:
+                                last_peak_idx = self.peaks[-1]
+                                # Find the lowest bar between last peak and current trough
+                                lowest_low = float('inf')
+                                lowest_idx = index_to_add
+                                for idx in range(last_peak_idx, index_to_add + 1):
+                                    current_low = self.data.loc[self.data.index[idx], 'Low']
+                                    if current_low < lowest_low:
+                                        lowest_low = current_low
+                                        lowest_idx = idx
+                                index_to_add = lowest_idx
+
+                            self.troughs.append(index_to_add)
+                            need_trough = False
+                            need_peak = True
    
         return self.peaks, self.troughs
    

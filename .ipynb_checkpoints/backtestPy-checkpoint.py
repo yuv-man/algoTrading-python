@@ -36,7 +36,10 @@ class Backtester:
         """
         
         # Execute trading strategy and get position data
-        strategy_data = self.execute_strategy(strategy, **kwargs)
+        if strategy is None:
+            strategy_data = self.trend_strategy()
+        else:
+            strategy_data = self.execute_strategy(strategy, **kwargs)
         # Return just the Position series
         return strategy_data['Position'] if 'Position' in strategy_data.columns else pd.Series(0, index=self.data.index)
 
@@ -75,36 +78,145 @@ class Backtester:
 
     def execute_strategy(self, strategy: Callable = None, **kwargs) -> pd.DataFrame:
         """
-        Executes the given trading strategy. Defaults to the trend-following strategy if none is provided.
+        Executes the given trading strategy with customizable parameters.
         
         Args:
-            strategy (Callable): A custom strategy function that accepts the data and returns signals.
+            strategy (Callable): Custom strategy function or None for default trend strategy
+            **kwargs: Additional parameters to pass to the strategy function
             
         Returns:
-            pd.DataFrame: A DataFrame with columns for buy signals, sell signals, stop losses, and positions.
+            pd.DataFrame: DataFrame with columns for signals and positions
         """
-        # Use the provided strategy if given, otherwise default to the trend strategy
-        for key, value in kwargs.items():
-            print(f"{key}: {value}")
-        if strategy:
-            self.strategy_name = strategy.__name__
-            signals = strategy(self.data)
-            if not isinstance(signals, pd.DataFrame):
-                raise ValueError("The strategy function must return a DataFrame with a 'Position' column.")
-            
-            # Copy signals into the main data
-            self.data['Position'] = signals['Position']
-            if 'Stop_Loss' in signals.columns:
-                self.data['Stop_Loss'] = signals['Stop_Loss']
-            if 'Buy_Signal' in signals.columns:
-                self.data['Buy_Signal'] = signals['Buy_Signal']
-            if 'Sell_Signal' in signals.columns:
-                self.data['Sell_Signal'] = signals['Sell_Signal']
-            
-            return self.data[['Buy_Signal', 'Sell_Signal', 'Stop_Loss', 'Position']]
+        new = kwargs.get("something", "default_value")
+        stop_loss_pct = kwargs.get("stop_loss", None)
+        take_profit_pct = kwargs.get("take_profit", None)
         
-        # Use the default trend strategy if no custom strategy is provided
-        return self.trend_strategy()
+        # Initialize tracking variables
+        in_position = False
+        position_type = None
+        entry_price = None
+        current_stop_loss = None
+        current_take_profit = None
+        position = None
+        
+        # Initialize signal columns
+        self.data['Buy_Signal'] = 0
+        self.data['Sell_Signal'] = 0
+        self.data['Stop_Loss'] = None
+        self.data['Take_Profit'] = None
+        self.data['Position'] = 0
+        
+        # Initialize capital
+        self.current_capital = self.initial_capital
+        self.trade_size = self.current_capital
+        
+        # Get strategy signals
+        self.strategy_name = strategy._name_
+        signals = strategy(self.data, **kwargs)
+        
+        # Validate signals
+        if not isinstance(signals, pd.DataFrame):
+            raise ValueError("Strategy must return a DataFrame with required columns")
+        
+        # Process each bar
+        for i in range(1, len(self.data)):
+            current_idx = self.data.index[i]
+            previous_idx = self.data.index[i-1]
+            current_price = self.data['Close'].iloc[i]
+            
+            # Check for exits if in position
+            if in_position:
+                # Check stop loss
+                if stop_loss_pct and position_type == 'long':
+                    current_stop_loss = entry_price * (1 - stop_loss_pct)
+                    if current_price < current_stop_loss:
+                        self.data.loc[current_idx, 'Sell_Signal'] = 1
+                        self.data.loc[current_idx, 'Position'] = 0
+                        self._record_trade(position, i, current_price, 'long')
+                        in_position = False
+                        position_type = None
+                        continue
+                        
+                elif stop_loss_pct and position_type == 'short':
+                    current_stop_loss = entry_price * (1 + stop_loss_pct)
+                    if current_price > current_stop_loss:
+                        self.data.loc[current_idx, 'Buy_Signal'] = 1
+                        self.data.loc[current_idx, 'Position'] = 0
+                        self._record_trade(position, i, current_price, 'short')
+                        in_position = False
+                        position_type = None
+                        continue
+                
+                # Check take profit
+                if take_profit_pct and position_type == 'long':
+                    current_take_profit = entry_price * (1 + take_profit_pct)
+                    if current_price > current_take_profit:
+                        self.data.loc[current_idx, 'Sell_Signal'] = 1
+                        self.data.loc[current_idx, 'Position'] = 0
+                        self._record_trade(position, i, current_price, 'long')
+                        in_position = False
+                        position_type = None
+                        continue
+                        
+                elif take_profit_pct and position_type == 'short':
+                    current_take_profit = entry_price * (1 - take_profit_pct)
+                    if current_price < current_take_profit:
+                        self.data.loc[current_idx, 'Buy_Signal'] = 1
+                        self.data.loc[current_idx, 'Position'] = 0
+                        self._record_trade(position, i, current_price, 'short')
+                        in_position = False
+                        position_type = None
+                        continue
+            
+            # Process strategy signals
+            signal = signals['Position'].iloc[i]
+            
+            # Enter new position if signal and not in position
+            if not in_position and signal != 0:
+                entry_price = current_price
+                position_type = 'long' if signal > 0 else 'short'
+                position = self._enter_position(entry_price, i)
+                in_position = True
+                
+                if signal > 0:
+                    self.data.loc[current_idx, 'Buy_Signal'] = 1
+                else:
+                    self.data.loc[current_idx, 'Sell_Signal'] = 1
+                    
+                self.data.loc[current_idx, 'Position'] = signal
+                
+                # Set stop loss and take profit levels
+                if stop_loss_pct:
+                    self.data.loc[current_idx, 'Stop_Loss'] = (
+                        entry_price * (1 - stop_loss_pct) if signal > 0 
+                        else entry_price * (1 + stop_loss_pct)
+                    )
+                
+                if take_profit_pct:
+                    self.data.loc[current_idx, 'Take_Profit'] = (
+                        entry_price * (1 + take_profit_pct) if signal > 0 
+                        else entry_price * (1 - take_profit_pct)
+                    )
+            
+            # Exit existing position if signal changes
+            elif in_position and signal == 0:
+                self.data.loc[current_idx, 'Position'] = 0
+                if position_type == 'long':
+                    self.data.loc[current_idx, 'Sell_Signal'] = 1
+                else:
+                    self.data.loc[current_idx, 'Buy_Signal'] = 1
+                
+                self._record_trade(position, i, current_price, position_type)
+                in_position = False
+                position_type = None
+            
+            # Carry forward position and levels
+            elif i > 0:
+                self.data.loc[current_idx, 'Position'] = self.data.loc[previous_idx, 'Position']
+                self.data.loc[current_idx, 'Stop_Loss'] = self.data.loc[previous_idx, 'Stop_Loss']
+                self.data.loc[current_idx, 'Take_Profit'] = self.data.loc[previous_idx, 'Take_Profit']
+        
+        return self.data[['Buy_Signal', 'Sell_Signal', 'Stop_Loss', 'Take_Profit', 'Position']]
     
     def _record_trade(self, position, exit_idx, exit_price, trade_type):
         """
@@ -141,6 +253,7 @@ class Backtester:
     def trend_strategy(self) -> pd.DataFrame:
         """
         The default trend-following trading strategy with dynamic stop-loss management.
+        Closes any open positions at the end date using the closing price.
         
         Returns:
             pd.DataFrame: A DataFrame with columns for buy signals, sell signals, stop losses, and positions.
@@ -255,7 +368,30 @@ class Backtester:
             if i > 0 and pd.isna(self.data.loc[current_idx, 'Stop_Loss']):
                 self.data.loc[current_idx, 'Stop_Loss'] = self.data.loc[previous_idx, 'Stop_Loss']
     
+        # Close any open position at the end of the period
+        last_idx = self.data.index[-1]
+        last_price = self.data['Close'].iloc[-1]
+        
+        if in_position:
+            if position_type == 'long':
+                self.data.loc[last_idx, 'Sell_Signal'] = 1
+                self.data.loc[last_idx, 'Position'] = 0
+                self._record_trade(position, len(self.data) - 1, last_price, 'long')
+            elif position_type == 'short':
+                self.data.loc[last_idx, 'Buy_Signal'] = 1
+                self.data.loc[last_idx, 'Position'] = 0
+                self._record_trade(position, len(self.data) - 1, last_price, 'short')
+    
         return self.data[['Buy_Signal', 'Sell_Signal', 'Stop_Loss', 'Position']]
+
+    def _check_stop_loss(self, current_price, position_type, entry_price, stop_loss_pct):
+        if position_type == 'long':
+            stop_loss = entry_price * (1 - stop_loss_pct)
+            return current_price < stop_loss, stop_loss
+        elif position_type == 'short':
+            stop_loss = entry_price * (1 + stop_loss_pct)
+            return current_price > stop_loss, stop_loss
+        return False, None
 
     def get_trades_info(self):
         data = pd.DataFrame(self.tradesInfo)
