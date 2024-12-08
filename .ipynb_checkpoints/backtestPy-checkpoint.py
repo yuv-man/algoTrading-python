@@ -139,6 +139,7 @@ class Backtester:
     def trend_strategy(self) -> pd.DataFrame:
         """
         The default trend-following trading strategy with dynamic stop-loss management.
+        Closes any open positions at the end date using the closing price.
         
         Returns:
             pd.DataFrame: A DataFrame with columns for buy signals, sell signals, stop losses, and positions.
@@ -252,6 +253,20 @@ class Backtester:
                 self.data.loc[current_idx, 'Position'] = self.data.loc[previous_idx, 'Position']
             if i > 0 and pd.isna(self.data.loc[current_idx, 'Stop_Loss']):
                 self.data.loc[current_idx, 'Stop_Loss'] = self.data.loc[previous_idx, 'Stop_Loss']
+    
+        # Close any open position at the end of the period
+        last_idx = self.data.index[-1]
+        last_price = self.data['Close'].iloc[-1]
+        
+        if in_position:
+            if position_type == 'long':
+                self.data.loc[last_idx, 'Sell_Signal'] = 1
+                self.data.loc[last_idx, 'Position'] = 0
+                self._record_trade(position, len(self.data) - 1, last_price, 'long')
+            elif position_type == 'short':
+                self.data.loc[last_idx, 'Buy_Signal'] = 1
+                self.data.loc[last_idx, 'Position'] = 0
+                self._record_trade(position, len(self.data) - 1, last_price, 'short')
     
         return self.data[['Buy_Signal', 'Sell_Signal', 'Stop_Loss', 'Position']]
 
@@ -380,7 +395,7 @@ class Backtester:
         print("-" * 120)
         print(f"Interval:                {self.interval}\t\t\tStrategy Profit:      $ {round(self.current_capital-self.initial_capital,2)}")
         print(f"Start Date Capital:      {self.initial_capital}\t\t\tStrategy Yield:       {round((self.current_capital-self.initial_capital)/self.initial_capital*100,2)} %")
-        print(f"End Date Capital:        {self.current_capital}")
+        print(f"End Date Capital:        {round(self.current_capital,2)}")
         print(f"Strategy Name:           {self.strategy_name}")
         print("=" * 120)
 
@@ -402,7 +417,7 @@ class Backtester:
             
             print(f"{metric:<25}{total_str}{long_str}{short_str}")
             
-    def visualize_data(self, hideTrends=None, ):
+    def visualize_data(self, hideTrends=None):
         """Create a visualization of the stock price with candlesticks, trends, and trades."""
         # Create figure with secondary y-axis for volume
         fig = plt.figure(figsize=(15, 10))
@@ -467,14 +482,26 @@ class Backtester:
                 ax1.plot([entry_date, exit_date], [trade['entry_price'], trade['exit_price']], 
                         '--', color='darkred', alpha=0.5)
                 
-            # Add profit/loss annotation
+            # Add profit/loss annotation with improved positioning
             mid_date = entry_date + (exit_date - entry_date)/2
-            y_pos = max(trade['entry_price'], trade['exit_price'])
+            
+            # Calculate position based on trade direction and profit
+            price_range = self.data['High'].iloc[trade['entry_idx']:trade['exit_idx']].max() - \
+                         self.data['Low'].iloc[trade['entry_idx']:trade['exit_idx']].min()
+            if trade['profit_money'] > 0:
+                # Place profitable trade annotations above the highest point
+                y_pos = self.data['High'].iloc[trade['entry_idx']:trade['exit_idx']].max() + (price_range * 0.05)
+            else:
+                # Place losing trade annotations below the lowest point
+                y_pos = self.data['Low'].iloc[trade['entry_idx']:trade['exit_idx']].min() - (price_range * 0.05)
+            
             profit_text = f"{trade['profit_percent']:.1f}%\n${trade['profit_money']:.1f}"
             ax1.annotate(profit_text, 
                         xy=(mid_date, y_pos),
-                        xytext=(0, 10), textcoords='offset points',
-                        ha='center', va='bottom',
+                        xytext=(0, 10 if trade['profit_money'] > 0 else -10), 
+                        textcoords='offset points',
+                        ha='center',
+                        va='bottom' if trade['profit_money'] > 0 else 'top',
                         bbox=dict(boxstyle='round,pad=0.5', 
                                 fc='yellow' if trade['profit_money'] > 0 else 'red',
                                 alpha=0.3),
