@@ -26,27 +26,27 @@ class Backtester:
         self.tradesInfo = []
         self.strategy_name = "trend_strategy"
         
-    def backtest(self) -> Dict[str, Any]:
+    def backtest(self, strategy: Callable = None, **kwargs) -> Dict[str, Any]:
         """Run backtest on the trend strategy"""
-        return self.run_backtest()
+        return self.run_backtest(strategy, **kwargs)
         
-    def generate_signals(self, **kwargs) -> pd.Series:
+    def generate_signals(self, strategy: Callable = None, **kwargs) -> pd.Series:
         """
         Trend following strategy based on peaks, troughs and stop losses
         """
         
         # Execute trading strategy and get position data
-        strategy_data = self.execute_strategy()
+        strategy_data = self.execute_strategy(strategy, **kwargs)
         # Return just the Position series
         return strategy_data['Position'] if 'Position' in strategy_data.columns else pd.Series(0, index=self.data.index)
 
-    def run_backtest(self, **kwargs) -> Dict[str, Any]:
+    def run_backtest(self, strategy: Callable = None, **kwargs) -> Dict[str, Any]:
         self.current_capital = self.initial_capital
         self.trade_size = self.current_capital
 
         """Runs backtest and returns metrics"""
         # Generate signals using the default trend strategy
-        self.data['Signal'] = self.generate_signals(**kwargs)
+        self.data['Signal'] = self.generate_signals(strategy, **kwargs)
    
         self.data['Position'] = self.data['Signal'].fillna(0)
         self.data['Trade'] = self.data['Position'].diff()
@@ -73,7 +73,7 @@ class Backtester:
             'Short': short_metrics
         }
 
-    def execute_strategy(self, strategy: Callable = None) -> pd.DataFrame:
+    def execute_strategy(self, strategy: Callable = None, **kwargs) -> pd.DataFrame:
         """
         Executes the given trading strategy. Defaults to the trend-following strategy if none is provided.
         
@@ -84,6 +84,8 @@ class Backtester:
             pd.DataFrame: A DataFrame with columns for buy signals, sell signals, stop losses, and positions.
         """
         # Use the provided strategy if given, otherwise default to the trend strategy
+        for key, value in kwargs.items():
+            print(f"{key}: {value}")
         if strategy:
             self.strategy_name = strategy.__name__
             signals = strategy(self.data)
