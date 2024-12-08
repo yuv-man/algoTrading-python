@@ -139,6 +139,7 @@ class Backtester:
     def trend_strategy(self) -> pd.DataFrame:
         """
         The default trend-following trading strategy with dynamic stop-loss management.
+        Closes any open positions at the end date using the closing price.
         
         Returns:
             pd.DataFrame: A DataFrame with columns for buy signals, sell signals, stop losses, and positions.
@@ -252,6 +253,20 @@ class Backtester:
                 self.data.loc[current_idx, 'Position'] = self.data.loc[previous_idx, 'Position']
             if i > 0 and pd.isna(self.data.loc[current_idx, 'Stop_Loss']):
                 self.data.loc[current_idx, 'Stop_Loss'] = self.data.loc[previous_idx, 'Stop_Loss']
+    
+        # Close any open position at the end of the period
+        last_idx = self.data.index[-1]
+        last_price = self.data['Close'].iloc[-1]
+        
+        if in_position:
+            if position_type == 'long':
+                self.data.loc[last_idx, 'Sell_Signal'] = 1
+                self.data.loc[last_idx, 'Position'] = 0
+                self._record_trade(position, len(self.data) - 1, last_price, 'long')
+            elif position_type == 'short':
+                self.data.loc[last_idx, 'Buy_Signal'] = 1
+                self.data.loc[last_idx, 'Position'] = 0
+                self._record_trade(position, len(self.data) - 1, last_price, 'short')
     
         return self.data[['Buy_Signal', 'Sell_Signal', 'Stop_Loss', 'Position']]
 
