@@ -64,6 +64,10 @@ class Backtester:
         long_trades = self.trades[self.trades['Position'] > 0]
         short_trades = self.trades[self.trades['Position'] < 0]
 
+        if len(self.tradesInfo) == 0:
+            print("No Trades in between these dates")
+            return
+
         #different
         trades_df = pd.DataFrame(self.tradesInfo) 
         total_metrics = self.calculate_metrics(trades_df)
@@ -437,7 +441,7 @@ class Backtester:
             }
 
         trades = trades_df.copy()
-        
+
         profit_trades = trades[trades['profit_percent'] > 0]
         loss_trades = trades[trades['profit_percent'] < 0]
         even_trades = trades[trades['profit_percent'] == 0]

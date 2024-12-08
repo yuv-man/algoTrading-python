@@ -64,6 +64,10 @@ class Backtester:
         long_trades = self.trades[self.trades['Position'] > 0]
         short_trades = self.trades[self.trades['Position'] < 0]
 
+        if len(self.tradesInfo) == 0:
+            print("No Trades in between these dates")
+            return
+
         #different
         trades_df = pd.DataFrame(self.tradesInfo) 
         total_metrics = self.calculate_metrics(trades_df)
@@ -437,7 +441,7 @@ class Backtester:
             }
 
         trades = trades_df.copy()
-        
+
         profit_trades = trades[trades['profit_percent'] > 0]
         loss_trades = trades[trades['profit_percent'] < 0]
         even_trades = trades[trades['profit_percent'] == 0]
@@ -540,7 +544,7 @@ class Backtester:
             
             print(f"{metric:<25}{total_str}{long_str}{short_str}")
             
-    def visualize_data(self, hideTrends=None):
+    def visualize_data(self, hideTrends=None, ):
         """Create a visualization of the stock price with candlesticks, trends, and trades."""
         # Create figure with secondary y-axis for volume
         fig = plt.figure(figsize=(15, 10))
@@ -605,26 +609,14 @@ class Backtester:
                 ax1.plot([entry_date, exit_date], [trade['entry_price'], trade['exit_price']], 
                         '--', color='darkred', alpha=0.5)
                 
-            # Add profit/loss annotation with improved positioning
+            # Add profit/loss annotation
             mid_date = entry_date + (exit_date - entry_date)/2
-            
-            # Calculate position based on trade direction and profit
-            price_range = self.data['High'].iloc[trade['entry_idx']:trade['exit_idx']].max() - \
-                         self.data['Low'].iloc[trade['entry_idx']:trade['exit_idx']].min()
-            if trade['profit_money'] > 0:
-                # Place profitable trade annotations above the highest point
-                y_pos = self.data['High'].iloc[trade['entry_idx']:trade['exit_idx']].max() + (price_range * 0.05)
-            else:
-                # Place losing trade annotations below the lowest point
-                y_pos = self.data['Low'].iloc[trade['entry_idx']:trade['exit_idx']].min() - (price_range * 0.05)
-            
+            y_pos = max(trade['entry_price'], trade['exit_price'])
             profit_text = f"{trade['profit_percent']:.1f}%\n${trade['profit_money']:.1f}"
             ax1.annotate(profit_text, 
                         xy=(mid_date, y_pos),
-                        xytext=(0, 10 if trade['profit_money'] > 0 else -10), 
-                        textcoords='offset points',
-                        ha='center',
-                        va='bottom' if trade['profit_money'] > 0 else 'top',
+                        xytext=(0, 10), textcoords='offset points',
+                        ha='center', va='bottom',
                         bbox=dict(boxstyle='round,pad=0.5', 
                                 fc='yellow' if trade['profit_money'] > 0 else 'red',
                                 alpha=0.3),
