@@ -233,7 +233,7 @@ class StockTrendAnalyzer:
        
         # Need at least 2 peaks and 2 troughs to identify a trend
         if len(self.peaks) < 2 or len(self.troughs) < 2:
-            return
+            return [], []
            
         # Initialize variables to track current trend
         current_uptrend_start = None
@@ -313,6 +313,7 @@ class StockTrendAnalyzer:
             self.uptrends.append((current_uptrend_start, current_idx))
         if current_downtrend_start is not None:
             self.downtrends.append((current_downtrend_start, current_idx))
+        
         return self.uptrends, self.downtrends
 
 
@@ -379,7 +380,7 @@ class StockTrendAnalyzer:
         ohlc_data = df_ohlc[['Date', 'Open', 'High', 'Low', 'Close']].values
         
         # Plot candlesticks
-        candlestick_ohlc(ax, ohlc_data, width=0.0005,  # Smaller width for high granularity
+        candlestick_ohlc(ax, ohlc_data, width=0.001,  # Smaller width for high granularity
                          colorup='green', colordown='red', alpha=0.7)
         
         # Plot peaks and troughs

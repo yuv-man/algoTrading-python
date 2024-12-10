@@ -41,6 +41,9 @@ class StockData:
         data = yf.download(self.symbol, start=start_date_intra, end=end_date, interval=self.interval)
 
         # Ensure the index is timezone-aware and normalized
+        if data.index.tz is None:
+        # Localize to UTC
+            data.index = data.index.tz_localize("UTC")
         data.index = data.index.tz_convert("America/New_York")
 
         specific_date=self.specific_given_date or yesterday
