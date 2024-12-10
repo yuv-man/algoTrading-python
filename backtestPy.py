@@ -23,6 +23,10 @@ class Backtester:
         self.troughs = params.get("troughs", [])
         self.uptrends = params.get("uptrends", [])
         self.downtrends = params.get("downtrends", [])
+        self.peaks_intraday = params.get("peaks_intraday", [])
+        self.troughs_intraday = params.get("troughs_intraday", [])
+        self.uptrends_intraday = params.get("uptrends_intraday", [])
+        self.downtrends_intraday = params.get("downtrends_intraday", [])
         self.tradesInfo = []
         self.strategy_name = "trend_strategy"
         

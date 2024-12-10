@@ -1,7 +1,6 @@
 import yfinance as yf
 import numpy as np
 import pandas as pd
-from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 from mplfinance.original_flavor import candlestick_ohlc
 import matplotlib.dates as mpdates
@@ -119,37 +118,41 @@ class StockTrendAnalyzer:
     def find_peaks_and_troughs(self):
         """
         Identifies peaks and troughs based on candlestick patterns and price movement.
-        Strictly enforces alternation - must have trough between peaks and peak between troughs.
+        Strictly enforces alternation - must have a trough between peaks and a peak between troughs.
         """
+        self.data = self.data.copy()
+        self.data['ReversalType'] = None  # Ensure column exists
+        self.data['CandleMove'] = None  # Track movement direction
+    
         self.peaks = []
         self.troughs = []
-        need_peak = False   # if True, we can only record a peak next
-        need_trough = False # if True, we can only record a trough next
-   
-        # Handle first candle
+        need_peak = False   # True if the next valid point must be a peak
+        need_trough = False # True if the next valid point must be a trough
+    
+        # Handle the first candle
         first_idx = self.data.index[0]
         current = self.data.loc[first_idx]
-        self.data.loc[first_idx, 'Move'] = 'up' if current['Open'] < current['Close'] else 'down'
-   
+        self.data.loc[first_idx, 'CandleMove'] = 'up' if current['Open'] < current['Close'] else 'down'
+    
         # Process remaining candles
         for i in range(1, len(self.data)):
             current_idx = self.data.index[i]
-            previous_idx = self.data.index[i-1]
-           
+            previous_idx = self.data.index[i - 1]
+    
             current = self.data.loc[current_idx]
             previous = self.data.loc[previous_idx]
-   
+    
             # Determine basic move direction
             if current['High'] > previous['High'] and current['Low'] > previous['Low']:
                 self.data.loc[current_idx, 'CandleMove'] = 'up'
             elif current['High'] < previous['High'] and current['Low'] < previous['Low']:
                 self.data.loc[current_idx, 'CandleMove'] = 'down'
-           
+    
             # Check for inside bar - mark and continue
             if current['High'] <= previous['High'] and current['Low'] >= previous['Low']:
                 self.data.loc[current_idx, 'ReversalType'] = 'insidebar'
                 continue
-   
+    
             # Check for outside bar
             is_outside_bar = current['High'] > previous['High'] and current['Low'] < previous['Low']
             if is_outside_bar:
@@ -157,78 +160,56 @@ class StockTrendAnalyzer:
                     self.data.loc[current_idx, 'ReversalType'] = 'RedOKR'
                 else:
                     self.data.loc[current_idx, 'ReversalType'] = 'GreenOKR'
-   
+    
             if i > 1:  # Need at least 3 bars for peak/trough detection
-                prev_prev_idx = self.data.index[i-2]
-               
-                # Skip if previous bar was an inside bar
+                prev_prev_idx = self.data.index[i - 2]
+    
+                # Skip if the previous bar was an inside bar
                 if self.data.loc[previous_idx, 'ReversalType'] == 'insidebar':
                     continue
-
-                # Check standard pattern conditions
+    
+                # Define peak and trough conditions
                 peak_condition = (self.data.loc[previous_idx, 'CandleMove'] == 'down' or
-                                self.data.loc[previous_idx, 'ReversalType'] in ['Doji', 'InverterHammer', 'RedKR'])
-                
+                                  self.data.loc[previous_idx, 'ReversalType'] in ['Doji', 'InverterHammer', 'RedKR'])
                 trough_condition = (self.data.loc[previous_idx, 'CandleMove'] == 'up' or
-                                  self.data.loc[previous_idx, 'ReversalType'] in ['Doji', 'Hammer', 'GreenKR'])
-
-                # Check outside bar conditions
-                peak_outside_condition = is_outside_bar and current['Open'] > current['Close']
-                trough_outside_condition = is_outside_bar and current['Open'] < current['Close']
-
+                                    self.data.loc[previous_idx, 'ReversalType'] in ['Doji', 'Hammer', 'GreenKR'])
+    
                 # Handle peaks
-                if (peak_condition or peak_outside_condition):
-                    if len(self.peaks) == 0 or need_peak:  # Can only add peak if we need one
-                        if peak_condition:
-                            index_to_add = i-2
-                        else:  # peak_outside_condition
-                            index_to_add = i
-                            
-                        if not trough_condition and not trough_outside_condition:  # Ensure not also a trough
+                if (peak_condition or (is_outside_bar and current['Open'] > current['Close'])):
+                    if len(self.peaks) == 0 or need_peak:  # Can only add a peak if we need one
+                        index_to_add = i - 2 if peak_condition else i
+    
+                        if not trough_condition:  # Ensure it's not also a trough
                             # Check for higher bars between last trough and this peak
                             if self.troughs:
                                 last_trough_idx = self.troughs[-1]
-                                # Find the highest bar between last trough and current peak
-                                highest_high = float('-inf')
-                                highest_idx = index_to_add
-                                for idx in range(last_trough_idx, index_to_add + 1):
-                                    current_high = self.data.loc[self.data.index[idx], 'High']
-                                    if current_high > highest_high:
-                                        highest_high = current_high
-                                        highest_idx = idx
+                                highest_idx = max(range(last_trough_idx, index_to_add + 1),
+                                                  key=lambda x: self.data.loc[self.data.index[x], 'High'])
                                 index_to_add = highest_idx
-
+    
                             self.peaks.append(index_to_add)
                             need_peak = False
                             need_trough = True
-
+    
                 # Handle troughs
-                if (trough_condition or trough_outside_condition):
-                    if len(self.troughs) == 0 or need_trough:  # Can only add trough if we need one
-                        if trough_condition:
-                            index_to_add = i-2
-                        else:  # trough_outside_condition
-                            index_to_add = i
-                            
-                        if not peak_condition and not peak_outside_condition:  # Ensure not also a peak
+                if (trough_condition or (is_outside_bar and current['Open'] < current['Close'])):
+                    if len(self.troughs) == 0 or need_trough:  # Can only add a trough if we need one
+                        index_to_add = i - 2 if trough_condition else i
+    
+                        if not peak_condition:  # Ensure it's not also a peak
                             # Check for lower bars between last peak and this trough
                             if self.peaks:
                                 last_peak_idx = self.peaks[-1]
-                                # Find the lowest bar between last peak and current trough
-                                lowest_low = float('inf')
-                                lowest_idx = index_to_add
-                                for idx in range(last_peak_idx, index_to_add + 1):
-                                    current_low = self.data.loc[self.data.index[idx], 'Low']
-                                    if current_low < lowest_low:
-                                        lowest_low = current_low
-                                        lowest_idx = idx
+                                lowest_idx = min(range(last_peak_idx, index_to_add + 1),
+                                                 key=lambda x: self.data.loc[self.data.index[x], 'Low'])
                                 index_to_add = lowest_idx
-
+    
                             self.troughs.append(index_to_add)
                             need_trough = False
                             need_peak = True
-   
+    
         return self.peaks, self.troughs
+
    
     def identify_trends(self):
         """
@@ -383,6 +364,59 @@ class StockTrendAnalyzer:
         plt.tight_layout()
        
         return plt
+        
+    def visualize_intraday_trends(self):
+        """Create a visualization of the intraday stock price with candlesticks and trends."""
+        import matplotlib.pyplot as plt
+        from mplfinance.original_flavor import candlestick_ohlc
+        import matplotlib.dates as mpdates
+    
+        fig, ax = plt.subplots(figsize=(15, 8))
+        
+        # Prepare data for candlestick chart
+        df_ohlc = self.data.reset_index()
+        df_ohlc['Date'] = df_ohlc['Datetime'].map(mpdates.date2num)  # Map intraday datetime to numeric format
+        ohlc_data = df_ohlc[['Date', 'Open', 'High', 'Low', 'Close']].values
+        
+        # Plot candlesticks
+        candlestick_ohlc(ax, ohlc_data, width=0.0005,  # Smaller width for high granularity
+                         colorup='green', colordown='red', alpha=0.7)
+        
+        # Plot peaks and troughs
+        dates_float = df_ohlc['Date'].values
+    
+        # For peaks: High 
+        offset_factor = 0.001  # Smaller offset closer to the peak/trough
+        peak_y_positions = self.data['High'].iloc[self.peaks] + (self.data['Close'].iloc[self.peaks] * offset_factor)
+        ax.plot(dates_float[self.peaks], peak_y_positions,
+                'gv', label='Peaks', markersize=10)  # Green upward triangle for peaks
+        
+        trough_y_positions = self.data['Low'].iloc[self.troughs] - (self.data['Close'].iloc[self.troughs] * offset_factor)
+        ax.plot(dates_float[self.troughs], trough_y_positions,
+                'r^', label='Troughs', markersize=10)
+        
+        # Highlight trends
+        for start_idx, end_idx in self.uptrends:
+            ax.axvspan(dates_float[start_idx], dates_float[end_idx],
+                       alpha=0.2, color='green', label='Uptrend')
+        
+        for start_idx, end_idx in self.downtrends:
+            ax.axvspan(dates_float[start_idx], dates_float[end_idx],
+                       alpha=0.2, color='red', label='Downtrend')
+        
+        # Customize the plot
+        ax.xaxis.set_major_formatter(mpdates.DateFormatter('%Y-%m-%d %H:%M'))
+        ax.xaxis.set_major_locator(mpdates.AutoDateLocator())
+        plt.title(f'{self.symbol} Intraday Stock Price Trends')
+        plt.xlabel('Date and Time')
+        plt.ylabel('Price')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        
+        return plt
+
    
     def get_trend_summary(self):
         """Generate a summary of identified trends."""
