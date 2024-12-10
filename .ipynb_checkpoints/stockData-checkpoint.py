@@ -22,6 +22,7 @@ class StockData:
             # Filter by start_date
          # Daily or higher intervals
         self.stock = yf.download(self.symbol, start=self.start_date, end=self.end_date, interval=self.interval)
+        #self.stock.columns = self.stock.columns.droplevel(1)
         print("Data loaded successfully.")
         return self.stock
 
@@ -34,11 +35,16 @@ class StockData:
         start_date_intra = (today - dt.timedelta(days=59)).strftime("%Y-%m-%d")
         yesterday = (today - dt.timedelta(days=1)).strftime("%Y-%m-%d")
         end_date = today.strftime("%Y-%m-%d")
-        start_day_one_year= (today - dt.timedelta(days=365)).strftime("%Y-%m-%d")
+        
+        daily_end_date = self.specific_given_date or end_date
+        end_daily = dt.datetime.strptime(daily_end_date, '%Y-%m-%d').date()
+        start_day_one_year= (end_daily - dt.timedelta(days=365)).strftime("%Y-%m-%d")
 
-        daily_data = yf.download(self.symbol, start=start_day_one_year, end=end_date, interval='1d')
+        daily_data = yf.download(self.symbol, start=start_day_one_year, end=end_daily, interval='1d')
+        #daily_data.columns = daily_data.columns.droplevel(1)
 
         data = yf.download(self.symbol, start=start_date_intra, end=end_date, interval=self.interval)
+        #data.columns = data.columns.droplevel(1)
 
         # Ensure the index is timezone-aware and normalized
         if data.index.tz is None:

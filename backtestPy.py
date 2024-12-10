@@ -29,6 +29,7 @@ class Backtester:
         self.downtrends_intraday = params.get("downtrends_intraday", [])
         self.tradesInfo = []
         self.strategy_name = "trend_strategy"
+        self.daily_data = params.get("daily_data", None)
         
     def backtest(self, strategy: Callable = None, **kwargs) -> Dict[str, Any]:
         """Run backtest on the trend strategy"""
@@ -58,8 +59,10 @@ class Backtester:
         self.data['Position'] = self.data['Signal'].fillna(0)
         self.data['Trade'] = self.data['Position'].diff()
         
+        
         # Calculate trade metrics
         self.trades = self.data[self.data['Trade'] != 0].copy()
+        self.trades['Entry_Price'] = self.trades['Entry_Price'].astype(float)
         self.trades['Entry_Price'] = self.trades['Close']
         self.trades['Exit_Price'] = self.trades['Close'].shift(-1)
         self.trades['PnL'] = (self.trades['Exit_Price'] - self.trades['Entry_Price']) * self.trades['Position'] * self.trade_size
@@ -113,6 +116,7 @@ class Backtester:
         self.data['Stop_Loss'] = None
         self.data['Take_Profit'] = None
         self.data['Position'] = 0
+        self.data['Stop_Loss'] = self.data['Stop_Loss'].astype(float)
         
         # Initialize capital
         self.current_capital = self.initial_capital
@@ -643,6 +647,146 @@ class Backtester:
         plt.xticks(rotation=45)
         
         return plt
+
+    def visualize_intraday_data(self, prev_bar, last_peak, last_trough):
+        """
+        Create a visualization of the intraday stock price with candlesticks and trends.
+        
+        Args:
+            prev_bar (dict): Previous bar data with 'High', 'Low', 'Close', 'Open'
+            last_peak (float): Last daily peak price
+            last_trough (float): Last daily trough price
+            
+        Returns:
+            matplotlib.figure: The complete figure object
+        """
+        # Create figure with subplots
+        fig = plt.figure(figsize=(15, 8))
+        gs = GridSpec(2, 1, height_ratios=[3, 1], hspace=0.1)
+        ax1 = fig.add_subplot(gs[0])
+        ax2 = fig.add_subplot(gs[1], sharex=ax1)
+        
+        # Prepare OHLC data
+        df_ohlc = self.data.reset_index()
+        df_ohlc['Date'] = pd.to_datetime(df_ohlc['Datetime']).map(mpdates.date2num)
+        ohlc_data = df_ohlc[['Date', 'Open', 'High', 'Low', 'Close']].values
+        dates_float = df_ohlc['Date'].values
+        
+        # Plot candlesticks
+        candlestick_ohlc(ax1, ohlc_data, width=0.0005, 
+                         colorup='green', colordown='red', alpha=0.7)
+        
+        # Plot peaks and troughs with improved positioning
+        def plot_extrema(ax, indices, prices, is_peak=True):
+            if len(indices) > 0:
+                marker = 'gv' if is_peak else 'r^'
+                label = 'Peaks' if is_peak else 'Troughs'
+                offset = prices.iloc[indices] * 0.0005 * (1 if is_peak else -1)
+                y_positions = prices.iloc[indices] + offset
+                ax.plot(dates_float[indices], y_positions, marker, 
+                       label=label, markersize=10)
+        
+        plot_extrema(ax1, self.peaks_intraday, self.data['High'], True)
+        plot_extrema(ax1, self.troughs_intraday, self.data['Low'], False)
+        
+        # Plot trends with better labeling
+        def plot_trends(ax, trends, color, label):
+            plotted = False
+            for start_idx, end_idx in trends:
+                ax.axvspan(dates_float[start_idx], dates_float[end_idx],
+                          alpha=0.2, color=color, 
+                          label=label if not plotted else "_nolegend_")
+                plotted = True
+        
+        plot_trends(ax1, self.uptrends_intraday, 'green', 'Uptrend')
+        plot_trends(ax1, self.downtrends_intraday, 'red', 'Downtrend')
+        
+        # Calculate and apply price range limits
+        price_range = self.data['High'].max() - self.data['Low'].min()
+        range_limit = 1.5 * price_range
+        
+        # Plot previous bar levels
+        reference_levels = [
+            (prev_bar['High'], 'green', '--', 1, 'Prev Bar High'),
+            (prev_bar['Low'], 'red', '--', 1, 'Prev Bar Low'),
+            (prev_bar['Close'], 'blue', '-', 1, 'Prev Bar Close'),
+            (prev_bar['Open'], 'orange', '-', 1, 'Prev Bar Open'),
+            (last_peak, 'darkorange', '-', 2.5, 'Last Daily Peak'),
+            (last_trough, 'purple', '-', 2.5, 'Last Daily Trough')
+        ]
+        
+        for price, color, style, width, label in reference_levels:
+            if abs(price - self.data['High'].max()) <= range_limit:
+                ax1.axhline(price, color=color, linestyle=style, 
+                           linewidth=width, label=label)
+        
+        # Plot trades with improved visualization
+        def plot_trade(ax, trade, dates):
+            entry_date = dates[trade['entry_idx']]
+            exit_date = dates[trade['exit_idx']]
+            is_long = trade['type'] == 'long'
+            color = 'darkgreen' if is_long else 'darkred'
+            entry_label = f"{trade['type'].capitalize()} Entry"
+            exit_label = f"{trade['type'].capitalize()} Exit"
+            
+            # Plot entry/exit points
+            for date, price, label in [(entry_date, trade['entry_price'], entry_label),
+                                     (exit_date, trade['exit_price'], exit_label)]:
+                if label not in ax.get_legend_handles_labels()[1]:
+                    ax.plot(date, price, 'o', color=color, markersize=12, label=label)
+                else:
+                    ax.plot(date, price, 'o', color=color, markersize=12)
+            
+            # Draw connection line
+            ax.plot([entry_date, exit_date], 
+                    [trade['entry_price'], trade['exit_price']],
+                    '--', color=color, alpha=0.5)
+            
+            # Add profit/loss annotation
+            mid_date = entry_date + (exit_date - entry_date)/2
+            y_pos = max(trade['entry_price'], trade['exit_price'])
+            profit_text = f"{trade['profit_percent']:.1f}%\n${trade['profit_money']:.1f}"
+            profit_positive = trade['profit_money'] > 0
+            
+            ax.annotate(profit_text,
+                       xy=(mid_date, y_pos),
+                       xytext=(0, 10), textcoords='offset points',
+                       ha='center', va='bottom',
+                       bbox=dict(boxstyle='round,pad=0.5',
+                               fc='yellow' if profit_positive else 'red',
+                               alpha=0.3),
+                       color='green' if profit_positive else 'red')
+        
+        for trade in self.tradesInfo:
+            plot_trade(ax1, trade, dates_float)
+        
+        # Plot volume with improved colors
+        volume_colors = ['green' if close >= open else 'red'
+                        for close, open in zip(self.data['Close'], self.data['Open'])]
+        ax2.bar(dates_float, self.data['Volume'], 
+                color=volume_colors, alpha=0.7, width=0.0005)
+        
+        # Style and format the plot
+        ax1.xaxis.set_major_formatter(mpdates.DateFormatter('%Y-%m-%d %H:%M'))
+        ax1.xaxis.set_major_locator(mpdates.AutoDateLocator())
+        ax1.set_title(f'{self.symbol} Intraday Stock Price Trends')
+        ax2.set_xlabel('Date and Time')
+        ax1.set_ylabel('Price')
+        ax2.set_ylabel('Volume')
+        
+        # Add grid and adjust layout
+        ax1.grid(True, alpha=0.3)
+        ax2.grid(True, alpha=0.3)
+        ax1.legend(loc='upper left', bbox_to_anchor=(1, 1))
+        
+        # Rotate x-axis labels and adjust layout
+        plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
+        plt.setp(ax2.get_xticklabels(), rotation=45, ha='right')
+        
+        # Adjust layout to prevent overlapping
+        plt.tight_layout()
+        
+        return fig
 
 
 

@@ -7,7 +7,7 @@ import matplotlib.dates as mpdates
 from datetime import datetime
 
 class StockTrendAnalyzer:
-    def __init__(self, symbol, start_date, end_date, stock_data, interval=None, period=None):
+    def __init__(self, symbol, start_date, end_date, stock_data, interval=None ):
         """Initialize as before"""
         self.symbol = symbol
         self.data = stock_data
@@ -366,12 +366,9 @@ class StockTrendAnalyzer:
        
         return plt
         
-    def visualize_intraday_trends(self):
+    def visualize_intraday_trends(self, prev_bar, last_peak, last_trough):
         """Create a visualization of the intraday stock price with candlesticks and trends."""
-        import matplotlib.pyplot as plt
-        from mplfinance.original_flavor import candlestick_ohlc
-        import matplotlib.dates as mpdates
-    
+        
         fig, ax = plt.subplots(figsize=(15, 8))
         
         # Prepare data for candlestick chart
@@ -385,9 +382,7 @@ class StockTrendAnalyzer:
         
         # Plot peaks and troughs
         dates_float = df_ohlc['Date'].values
-    
-        # For peaks: High 
-        offset_factor = 0.001  # Smaller offset closer to the peak/trough
+        offset_factor = 0.001  # Offset for peaks/troughs
         peak_y_positions = self.data['High'].iloc[self.peaks] + (self.data['Close'].iloc[self.peaks] * offset_factor)
         ax.plot(dates_float[self.peaks], peak_y_positions,
                 'gv', label='Peaks', markersize=10)  # Green upward triangle for peaks
@@ -405,6 +400,28 @@ class StockTrendAnalyzer:
             ax.axvspan(dates_float[start_idx], dates_float[end_idx],
                        alpha=0.2, color='red', label='Downtrend')
         
+        # Calculate intraday price range
+        intraday_high = self.data['High'].max()
+        intraday_low = self.data['Low'].min()
+        price_range = intraday_high - intraday_low
+        range_limit = 1.5 * price_range  # Define acceptable range for additional lines
+        
+        # Add lines for `prev_bar` if within range
+        if abs(prev_bar['High'] - intraday_high) <= range_limit:
+            ax.axhline(prev_bar['High'], color='green', linestyle='--', linewidth=1, label='Prev Bar High')
+        if abs(prev_bar['Low'] - intraday_low) <= range_limit:
+            ax.axhline(prev_bar['Low'], color='red', linestyle='--', linewidth=1, label='Prev Bar Low')
+        if abs(prev_bar['Close'] - intraday_high) <= range_limit:
+            ax.axhline(prev_bar['Close'], color='blue', linestyle='-', linewidth=1, label='Prev Bar Close')
+        if abs(prev_bar['Open'] - intraday_high) <= range_limit:
+            ax.axhline(prev_bar['Open'], color='orange', linestyle='-', linewidth=1, label='Prev Bar Open')
+        
+        # Add bold lines for `last_peak` and `last_trough` if within range
+        if abs(last_peak - intraday_high) <= range_limit:
+            ax.axhline(last_peak, color='darkorange', linestyle='-', linewidth=2.5, label='Last Daily Peak')
+        if abs(last_trough - intraday_low) <= range_limit:
+            ax.axhline(last_trough, color='purple', linestyle='-', linewidth=2.5, label='Last Daily Trough')
+        
         # Customize the plot
         ax.xaxis.set_major_formatter(mpdates.DateFormatter('%Y-%m-%d %H:%M'))
         ax.xaxis.set_major_locator(mpdates.AutoDateLocator())
@@ -418,7 +435,7 @@ class StockTrendAnalyzer:
         
         return plt
 
-   
+    
     def get_trend_summary(self):
         """Generate a summary of identified trends."""
         summary = []
