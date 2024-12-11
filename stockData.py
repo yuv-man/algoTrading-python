@@ -59,7 +59,6 @@ class StockData:
             specific_date_start = pd.Timestamp(start + " 00:00:00").tz_localize("America/New_York")
             specific_date_end = pd.Timestamp(end + " 00:00:00").tz_localize("America/New_York")
         else:
-            print('hello')
             specific_date=self.specific_given_date or yesterday
             specific_date_start = pd.Timestamp(specific_date + " 00:00:00").tz_localize("America/New_York")
             specific_date_end = specific_date_start + pd.Timedelta(days=1)
