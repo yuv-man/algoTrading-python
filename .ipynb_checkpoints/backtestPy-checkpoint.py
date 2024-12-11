@@ -411,51 +411,36 @@ class Backtester:
 
     def get_trades_info_per_day(self):
         """
-        Calculate and display daily trading statistics in a formatted table.
+        Calculate and display daily trading statistics based on actual trade profits.
+        Uses the profit data from individual trades rather than day start/end prices.
         """
         data = pd.DataFrame(self.tradesInfo)
         
         # Convert dates to datetime
-        data['open_date'] = pd.to_datetime(data['open_date'])
         data['close_date'] = pd.to_datetime(data['close_date'])
         
-        # Group by close date to get daily statistics
+        # Group by close date to get daily statistics from actual trades
         daily_stats = data.groupby(data['close_date'].dt.date).agg({
-            'entry_price': 'first',
-            'exit_price': 'last',
-            'profit_money': 'sum',
-            'profit_percent': 'mean',
-            'type': 'count'
+            'profit_money': 'sum',    # Sum of all trade profits for the day
+            'profit_percent': 'sum',  # Sum of all trade profit percentages
+            'type': 'count'          # Number of trades per day
         }).reset_index()
-        
-        # Calculate daily changes
-        daily_stats['price_change_money'] = daily_stats['exit_price'] - daily_stats['entry_price']
-        daily_stats['price_change_percent'] = (
-            (daily_stats['exit_price'] - daily_stats['entry_price']) / 
-            daily_stats['entry_price'] * 100
-        )
         
         # Format the columns for display
         formatted_stats = daily_stats.copy()
-        formatted_stats['price_change_money'] = formatted_stats['price_change_money'].apply(lambda x: f"${x:,.2f}")
-        formatted_stats['price_change_percent'] = formatted_stats['price_change_percent'].apply(lambda x: f"{x:,.2f}%")
         formatted_stats['profit_money'] = formatted_stats['profit_money'].apply(lambda x: f"${x:,.2f}")
         formatted_stats['profit_percent'] = formatted_stats['profit_percent'].apply(lambda x: f"{x:,.2f}%")
-        formatted_stats['entry_price'] = formatted_stats['entry_price'].apply(lambda x: f"${x:,.2f}")
-        formatted_stats['exit_price'] = formatted_stats['exit_price'].apply(lambda x: f"${x:,.2f}")
         
         # Rename columns for better display
         formatted_stats.columns = [
-            'Date', 'Entry Price', 'Exit Price', 'Profit ($)', 
-            'Profit (%)', 'Trades Count', 'Price Change ($)', 
-            'Price Change (%)'
+            'Date', 'Daily Profit ($)', 'Daily Profit (%)', 'Number of Trades'
         ]
         
         # Print the formatted table
-        print("\nDaily Trading Statistics")
-        print("=" * 100)
+        print("\nDaily Trading Statistics (Based on Actual Trades)")
+        print("=" * 80)
         print(formatted_stats.to_string(index=False))
-        print("=" * 100)
+        print("=" * 80)
         
         # Return the unformatted DataFrame for further calculations if needed
         return daily_stats
