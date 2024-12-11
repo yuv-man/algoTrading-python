@@ -409,6 +409,57 @@ class Backtester:
         data = pd.DataFrame(self.tradesInfo)
         return data
 
+    def get_trades_info_per_day(self):
+        """
+        Calculate and display daily trading statistics in a formatted table.
+        """
+        data = pd.DataFrame(self.tradesInfo)
+        
+        # Convert dates to datetime
+        data['open_date'] = pd.to_datetime(data['open_date'])
+        data['close_date'] = pd.to_datetime(data['close_date'])
+        
+        # Group by close date to get daily statistics
+        daily_stats = data.groupby(data['close_date'].dt.date).agg({
+            'entry_price': 'first',
+            'exit_price': 'last',
+            'profit_money': 'sum',
+            'profit_percent': 'mean',
+            'type': 'count'
+        }).reset_index()
+        
+        # Calculate daily changes
+        daily_stats['price_change_money'] = daily_stats['exit_price'] - daily_stats['entry_price']
+        daily_stats['price_change_percent'] = (
+            (daily_stats['exit_price'] - daily_stats['entry_price']) / 
+            daily_stats['entry_price'] * 100
+        )
+        
+        # Format the columns for display
+        formatted_stats = daily_stats.copy()
+        formatted_stats['price_change_money'] = formatted_stats['price_change_money'].apply(lambda x: f"${x:,.2f}")
+        formatted_stats['price_change_percent'] = formatted_stats['price_change_percent'].apply(lambda x: f"{x:,.2f}%")
+        formatted_stats['profit_money'] = formatted_stats['profit_money'].apply(lambda x: f"${x:,.2f}")
+        formatted_stats['profit_percent'] = formatted_stats['profit_percent'].apply(lambda x: f"{x:,.2f}%")
+        formatted_stats['entry_price'] = formatted_stats['entry_price'].apply(lambda x: f"${x:,.2f}")
+        formatted_stats['exit_price'] = formatted_stats['exit_price'].apply(lambda x: f"${x:,.2f}")
+        
+        # Rename columns for better display
+        formatted_stats.columns = [
+            'Date', 'Entry Price', 'Exit Price', 'Profit ($)', 
+            'Profit (%)', 'Trades Count', 'Price Change ($)', 
+            'Price Change (%)'
+        ]
+        
+        # Print the formatted table
+        print("\nDaily Trading Statistics")
+        print("=" * 100)
+        print(formatted_stats.to_string(index=False))
+        print("=" * 100)
+        
+        # Return the unformatted DataFrame for further calculations if needed
+        return daily_stats
+
     def calculate_buy_and_hold(self) -> Dict[str, Dict[str, Any]]:
         """Calculate buy and hold strategy results for comparison."""
         
@@ -663,6 +714,7 @@ class Backtester:
         # Create figure with subplots
         fig = plt.figure(figsize=(15, 8))
         gs = GridSpec(2, 1, height_ratios=[3, 1], hspace=0.1)
+        fig.set_tight_layout(False)
         ax1 = fig.add_subplot(gs[0])
         ax2 = fig.add_subplot(gs[1], sharex=ax1)
         
@@ -782,10 +834,7 @@ class Backtester:
         # Rotate x-axis labels and adjust layout
         plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
         plt.setp(ax2.get_xticklabels(), rotation=45, ha='right')
-        
-        # Adjust layout to prevent overlapping
-        plt.tight_layout()
-        
+                
         return fig
 
 
