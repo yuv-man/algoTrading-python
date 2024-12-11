@@ -58,7 +58,10 @@ class Backtester:
    
         self.data['Position'] = self.data['Signal'].fillna(0)
         self.data['Trade'] = self.data['Position'].diff()
-        
+
+        if len(self.tradesInfo) == 0:
+            print("No Trades in between these dates")
+            return
         
         # Calculate trade metrics
         self.trades = self.data[self.data['Trade'] != 0].copy()
@@ -71,9 +74,7 @@ class Backtester:
         long_trades = self.trades[self.trades['Position'] > 0]
         short_trades = self.trades[self.trades['Position'] < 0]
 
-        if len(self.tradesInfo) == 0:
-            print("No Trades in between these dates")
-            return
+        
 
         #different
         trades_df = pd.DataFrame(self.tradesInfo) 
