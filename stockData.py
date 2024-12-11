@@ -55,7 +55,7 @@ class StockData:
         daily_data = yf.download(self.symbol, start=start_day_one_year, end=end_daily, interval='1d')
         #daily_data.columns = daily_data.columns.droplevel(1)
 
-        data = download_intraday_data()
+        data = self.download_intraday_data()
 
         # Ensure the index is timezone-aware and normalized
         if data.index.tz is None:
