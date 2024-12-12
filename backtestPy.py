@@ -65,7 +65,6 @@ class Backtester:
         
         # Calculate trade metrics
         self.trades = self.data[self.data['Trade'] != 0].copy()
-        self.trades['Entry_Price'] = self.trades['Entry_Price'].astype(float)
         self.trades['Entry_Price'] = self.trades['Close']
         self.trades['Exit_Price'] = self.trades['Close'].shift(-1)
         self.trades['PnL'] = (self.trades['Exit_Price'] - self.trades['Entry_Price']) * self.trades['Position'] * self.trade_size

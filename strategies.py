@@ -189,106 +189,66 @@ class Strategies:
     @staticmethod
     def gaps_strategy(data: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """
-        High-probability gap trading strategy based on momentum and market conditions.
-        
-        Parameters:
-        - data: DataFrame with OHLCV data
-        - kwargs: Additional parameters (unused)
-        
+        Gap trading strategy that generates clear position signals.
+        Args:
+            data (pd.DataFrame): DataFrame with OHLCV data
+            **kwargs: Additional parameters (unused)
         Returns:
-        - DataFrame with Position column (1 for long, -1 for short, 0 for no position)
+            pd.DataFrame: DataFrame with Position column (1 for long, -1 for short, 0 for neutral)
         """
         # Create working copy
         df = data.copy()
         
-        # Calculate basic metrics
+        # Calculate basic gap metrics
         df['prev_close'] = df['Close'].shift(1)
-        df['prev_high'] = df['High'].shift(1)
-        df['prev_low'] = df['Low'].shift(1)
-        df['prev_open'] = df['Open'].shift(1)
-        
-        # Calculate gap metrics
         df['gap_size'] = (df['Open'] - df['prev_close']) / df['prev_close'] * 100
-        df['abs_gap_size'] = abs(df['gap_size'])
         
         # Calculate trend indicators
         df['sma5'] = df['Close'].rolling(window=5).mean()
         df['sma20'] = df['Close'].rolling(window=20).mean()
-        df['trend_up'] = df['sma5'] > df['sma20']
-        
-        # Calculate volatility
-        df['atr'] = df['High'] - df['Low']
-        df['avg_atr'] = df['atr'].rolling(window=10).mean()
-        df['volatility'] = df['Close'].rolling(window=10).std() / df['Close'].rolling(10).mean() * 100
-        
-        # Previous day characteristics
-        df['prev_day_range'] = df['prev_high'] - df['prev_low']
-        df['prev_day_body'] = abs(df['prev_close'] - df['prev_open'])
-        df['prev_day_body_ratio'] = df['prev_day_body'] / df['prev_day_range']
-        
-        # Volume condition
-        df['avg_volume'] = df['Volume'].rolling(window=20).mean()
-        df['volume_ratio'] = df['Volume'] / df['avg_volume']
         
         # Initialize position column
         df['Position'] = 0
         
-        # Strategy conditions
+        # Generate long signals (Position = 1)
         long_condition = (
-            # Gap size between 0.3% and 0.7%
-            (df['gap_size'] > 0.3) & 
-            (df['gap_size'] < 0.7) &
-            
-            # Uptrend confirmation
-            (df['trend_up']) &
-            
-            # Strong previous day momentum
-            (df['prev_day_body_ratio'] > 0.8) &
-            
-            # Low volatility environment
-            (df['volatility'] < 1.0) &
-            
-            # Volume confirmation
-            (df['volume_ratio'] > 1.2) &
-            
-            # Gap doesn't breach previous day's high
-            (df['Open'] < df['prev_high'])
+            (df['gap_size'] > 0.3) &  # Gap up > 0.3%
+            (df['gap_size'] < 0.7) &  # Gap up < 0.7%
+            (df['sma5'] > df['sma20'])  # Uptrend
         )
         
+        # Generate short signals (Position = -1)
         short_condition = (
-            # Large gap up in downtrend
-            (df['gap_size'] > 0.5) &
-            (~df['trend_up']) &
-            
-            # Weak previous day
-            (df['prev_day_body_ratio'] < 0.3) &
-            
-            # High volatility environment
-            (df['volatility'] > 1.0) &
-            
-            # Volume spike
-            (df['volume_ratio'] > 1.5)
+            (df['gap_size'] < -0.3) &  # Gap down > 0.3%
+            (df['gap_size'] > -0.7) &  # Gap down < 0.7%
+            (df['sma5'] < df['sma20'])  # Downtrend
         )
         
         # Set positions based on conditions
         df.loc[long_condition, 'Position'] = 1
         df.loc[short_condition, 'Position'] = -1
         
-        # Avoid consecutive losses
-        df['prev_position'] = df['Position'].shift(1)
-        df['prev_success'] = ((df['Position'].shift(1) == 1) & 
-                             (df['Close'] > df['Open'].shift(1))) | \
-                            ((df['Position'].shift(1) == -1) & 
-                             (df['Close'] < df['Open'].shift(1)))
-        
-        # Count consecutive losses
-        df['losing_streak'] = (~df['prev_success']).rolling(window=3, min_periods=1).sum()
-        
-        # No trading after 2 consecutive losses
-        df.loc[df['losing_streak'] >= 2, 'Position'] = 0
+        # Fill NaN values with 0
+        df['Position'] = df['Position'].fillna(0)
         
         # Return only Position column
         return df[['Position']]
+    
+    # Example usage:
+    """
+    # Sample data
+    data = pd.DataFrame({
+        'Open': [100, 101, 102, 103, 104],
+        'High': [102, 103, 104, 105, 106],
+        'Low': [99, 100, 101, 102, 103],
+        'Close': [101, 102, 103, 104, 105],
+        'Volume': [1000, 1100, 1200, 1300, 1400]
+    })
+    
+    # Get trading signals
+    signals = gaps_strategy(data)
+    print(signals)
+    """
 
 
 Strategies.sma_crossover_strategy._name_ = 'SMA_Crossover'
